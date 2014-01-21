@@ -10,35 +10,71 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Configuration;
 using Abot.Crawler;
 using Abot.Poco;
+using Abot.Core;
 
 namespace WebCrawlerWordsCount
 {
     public partial class WebCrawlerWordCount : Form
     {
+
+        #region delegates
+
         delegate void StringParameterDelegate(string value);
         delegate void CoutnersDelegate(int linksFound, int linksVisited, int linksSkipped);
         delegate void UpdateListViewDelegate(string url, int wordsCount, string filepath);
+
+        #endregion
+
+        #region Statistics Members
 
         int m_linksFound;
         int m_linksVisited;
         int m_linksSkipped;
 
-        string m_strSiteFolder;
+        #endregion
+
+
+        #region App Configuration
+
+        string m_strDefaultSite;
         string m_strSiteStatsFilename;
+        string m_strLogFilename;
+        string m_strDebugLevel;
+        int m_nDebugLevel;
+        string m_strScrapHTMLTags;
+        List<string> m_scrappedHTMLTags;
+        string m_strTagAttributes;
+        List<string> m_tagAttributes;
+
+        #endregion
+
+        #region Crawler Configuration
+
+        string m_strMaxConcurrentThreads;
+        string m_strMaxPagesToCrawl;
+        string m_strMaxPagesToCrawlPerDomain;
+        string m_strMaxPageSizeInBytes;
+        string m_strUserAgentString;
+        string m_strCrawlTimeoutSeconds;
+        string m_strDownloadableContentTypes;
+        string m_strHttpRequestTimeoutInSeconds;
+        string m_strIsHttpRequestAutoRedirectsEnabled;
+        string m_strMaxCrawlDepth;
+
+        #endregion
 
         Uri m_baseURL;
         BackgroundWorker m_backgroundWorker;
+        string m_strSiteFolder;
 
         StreamWriter m_logFile;
 
         public WebCrawlerWordCount()
         {
             InitializeComponent();
-            //siteURL.Text = @"http://www.ynet.co.il/";
-            //siteURL.Text = @"http://startupgrind.com/";
-            siteURL.Text = @"http://www.exent.com/";
             progressBar.Minimum = 0;
 
             m_linksFound = 0;
@@ -46,10 +82,26 @@ namespace WebCrawlerWordsCount
             m_linksSkipped = 0;
             UpdateCounters(m_linksFound, m_linksVisited, m_linksSkipped);
 
-            m_strSiteStatsFilename = "_stats.csv";
-
             m_backgroundWorker = new BackgroundWorker();
             m_backgroundWorker.DoWork += new DoWorkEventHandler(backgroundWorkerDoWork);
+
+            readAppConfiguration();
+        }
+
+        private string getAppConfigurationForKey(string strKey, string strDefault = "")
+        {
+            string value = ConfigurationManager.AppSettings[strKey];
+            if (value == null)
+            {
+                value = strDefault;
+            }
+            return value;
+        }
+
+        private void readAppConfiguration()
+        {
+            m_strSiteStatsFilename = getAppConfigurationForKey("StatisticsFilename", "_stats.csv");
+            siteURL.Text = getAppConfigurationForKey("DefaultSite");
         }
 
         private void goButton_Click(object sender, EventArgs e)
@@ -108,7 +160,13 @@ namespace WebCrawlerWordsCount
             updateStartWorking();
             LogMsg(@"starting worker thread on url: " + url);
 
+            //CrawlConfiguration crawlConfig = new CrawlConfiguration();
+            CrawlConfiguration crawlConfig = AbotConfigurationSectionHandler.LoadFromXml().Convert();
+            crawlConfig.MaxConcurrentThreads = Convert.ToInt32(m_strMaxConcurrentThreads);
+
             PoliteWebCrawler crawler = new PoliteWebCrawler();
+            //PoliteWebCrawler crawler = new PoliteWebCrawler(crawlConfig, null, null, null, null, null, null, null, null);
+
             crawler.PageCrawlStartingAsync += crawler_PageCrawlStartingAsync;
             crawler.PageCrawlCompletedAsync += crawler_PageCrawlCompletedAsync;
             crawler.PageCrawlDisallowedAsync += crawler_PageCrawlDisallowedAsync;
@@ -224,7 +282,9 @@ namespace WebCrawlerWordsCount
             HtmlAgilityPack.HtmlDocument htmlDoc = crawledPage.HtmlDocument;
             HtmlAgilityPack.HtmlNode root = htmlDoc.DocumentNode;
 
-            string page_str = "";
+            //string page_str = "";
+            string words_str = "";
+            List<string> paragraphs = new List<string>();
             foreach (HtmlAgilityPack.HtmlNode node in root.SelectNodes("//text()[not(parent::script)]"))
             {
                 // scrap out unwanted nodes
@@ -236,9 +296,11 @@ namespace WebCrawlerWordsCount
                     continue;
                 string node_str = node.InnerText.Trim();
                 node_str = CleanupString(node_str);
-                page_str += "\n" + node_str;
+                words_str += "\n" + node_str;
+                //paragraphs_str += "\n" + node_str;
+                paragraphs.Add(node_str);
             }
-            string[] words = Regex.Split(page_str, @"\W+");
+            string[] words = Regex.Split(words_str, @"\W+");
             LogMsg("found " + words.Length + " words in " + url);
 
             // create file name from url
@@ -247,7 +309,8 @@ namespace WebCrawlerWordsCount
             filename = filename.Trim(new Char[] {' ', '.'});
             filename += ".txt";
             LogMsg("filename: " + filename);
-            SaveWords(filename, words);
+            //SaveWords(filename, words);
+            SaveWords(filename, paragraphs.ToArray());
             UpdateListView(url, words.Length, filename);
         }
 
@@ -357,6 +420,7 @@ namespace WebCrawlerWordsCount
             {
                 File.WriteAllLines(filepath, words, Encoding.UTF8);
             }
+
         }
 
         private void listViewResults_SelectedIndexChanged(object sender, EventArgs e)
@@ -371,6 +435,13 @@ namespace WebCrawlerWordsCount
                 }
                 Clipboard.SetText(row_str);
             }
+        }
+
+        private void settingsButton_Click(object sender, EventArgs e)
+        {
+            Form2 settingsdlg = new Form2();
+
+            settingsdlg.ShowDialog();
         }
 
     }
